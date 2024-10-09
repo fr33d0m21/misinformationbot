@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MisinformationBot - No More Lies</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <style>
+        body {
+            background-color: #111;
+            color: #0f0;
+            font-family: 'Courier New', Courier, monospace;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            grid-gap: 20px;
+            height: 100vh;
+            padding: 20px;
+        }
+
+        #terminal {
+            border: 3px solid #0f0;
+            padding: 20px;
+            background-color: #222;
+            border-radius: 10px;
+            overflow-y: auto;
+            box-shadow: 0 0 20px #0f0;
+        }
+
+        #reports {
+            background-color: #222;
+            border: 3px solid #0f0;
+            padding: 20px;
+            border-radius: 10px;
+            overflow-y: auto;
+            box-shadow: 0 0 20px #0f0;
+        }
+
+        .line {
+            margin-bottom: 10px;
+            white-space: pre-wrap;
+        }
+
+        .user-input {
+            color: #fff;
+        }
+
+        .bot-output {
+            color: #0f0;
+        }
+
+        .thinking {
+            color: #ff0;
+        }
+
+        #input-area {
+            display: flex;
+            margin-top: 20px;
+        }
+
+        #input-field {
+            flex: 1;
+            background-color: #333;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 10px;
+            border-radius: 5px 0 0 5px;
+        }
+
+        #send-button {
+            background-color: #0f0;
+            color: #111;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 0 5px 5px 0;
+            cursor: pointer;
+        }
+
+        #send-button:hover {
+            background-color: #0a0;
+        }
+
+        .report-section {
+            margin-top: 20px;
+            border: 1px solid #0f0;
+            padding: 10px;
+            background-color: #333;
+        }
+
+        .report-section h3 {
+            color: #0f0;
+            cursor: pointer;
+        }
+
+        .report-section .content {
+            display: none;
+            color: #0f0;
+        }
+
+        /* D3.js Timeline Styles */
+        #timeline {
+            width: 100%;
+            height: 300px;
+            margin-top: 20px;
+        }
+
+        .timeline-line {
+            stroke: #0f0;
+            stroke-width: 2px;
+        }
+
+        .timeline-circle {
+            fill: #0f0;
+            stroke: #111;
+            stroke-width: 2px;
+        }
+
+        .timeline-label {
+            font-size: 12px;
+            fill: #0f0;
+        }
+
+        /* Mobile Responsiveness */
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto;
+            }
+        }
+
+        /* Follow-up Chat Box Styles */
+        #followup-section {
+            display: none; /* Initially hide the follow-up section */
+        }
+
+        #followup-chat {
+            border: 1px solid #0f0;
+            padding: 10px;
+            background-color: #333;
+            margin-top: 10px;
+            overflow-y: auto;
+            max-height: 200px;
+        }
+
+        #followup-input-area {
+            display: flex;
+            margin-top: 10px;
+        }
+
+        #followup-input-field {
+            flex: 1;
+            background-color: #333;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 10px;
+            border-radius: 5px 0 0 5px;
+        }
+
+        #followup-send-button {
+            background-color: #0f0;
+            color: #111;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 0 5px 5px 0;
+            cursor: pointer;
+        }
+
+        #followup-send-button:hover {
+            background-color: #0a0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="terminal">
+            <div class="line bot-output">
+                <i class="fas fa-microchip"></i> MisinformationBot Activated. No more lies.
+            </div>
+            <div id="input-area">
+                <input type="text" id="input-field" placeholder="Enter your claim here...">
+                <button id="send-button">Send <i class="fas fa-paper-plane"></i></button>
+            </div>
+        </div>
+
+        <div id="reports">
+            <div id="followup-section"></div>
+        </div>
+    </div>
+
+    <script>
+        const terminal = document.getElementById("terminal");
+        const reports = document.getElementById("reports");
+        const inputField = document.getElementById("input-field");
+        const sendButton = document.getElementById("send-button");
+
+        let sessionId = localStorage.getItem("session_id") || generateUUID();
+        localStorage.setItem("session_id", sessionId);
+        let ws = new WebSocket(
+            `ws://localhost:8000/ws/${sessionId}`
+        ); // Adjust WebSocket URL if necessary
+
+        ws.onopen = () => console.log("WebSocket connection opened");
+        ws.onmessage = (event) => {
+            const messageData = JSON.parse(event.data);
+            handleMessage(messageData);
+        };
+        ws.onclose = () => console.log("WebSocket connection closed");
+
+        function generateUUID() {
+            return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
+                /[xy]/g,
+                function (c) {
+                    const r = (Math.random() * 16) | 0,
+                        v = c == "x" ? r : (r & 0x3) | 0x8;
+                    return v.toString(16);
+                }
+            );
+        }
+
+        // *** CORRECTED handleMessage FUNCTION ***
+        function handleMessage(messageData) {
+            let lineClass = "bot-output";
+            let icon = '<i class="fas fa-microchip"></i> ';
+
+            // Array of message types to be displayed ONLY in the terminal
+            const terminalMessageTypes = [
+                "thinking",
+                "research_agent",
+                "analyst",
+                "argumentation",
+                "drafter",
+                "objectivity",
+                "data_visualization",
+                "user_feedback_explanation" 
+            ];
+
+            if (messageData.type === "research_result") {
+                const result = JSON.parse(messageData.content);
+                const sectionId = `research-question-${messageData.question_number}-section`;
+                addToResearchSection(
+                    sectionId,
+                    result,
+                    messageData.question_number,
+                    messageData.title // Pass the full title
+                );
+                return;
+            }
+
+            if (terminalMessageTypes.includes(messageData.type)) {
+                lineClass = "thinking"; 
+                icon = '<i class="fas fa-spinner fa-spin"></i> '; 
+
+                const line = document.createElement("div");
+                line.classList.add("line", lineClass);
+                line.innerHTML = icon + messageData.content;
+                terminal.appendChild(line);
+
+                terminal.scrollTop = terminal.scrollHeight;
+            } else {
+                // Create report sections for all other message types
+                createReportSection(messageData.type, messageData.content);
+            } 
+        }
+
+        function sendMessage() {
+            const message = inputField.value;
+            if (message.trim() !== "") {
+                const userLine = document.createElement("div");
+                userLine.classList.add("line", "user-input");
+                userLine.textContent = "> " + message;
+                terminal.appendChild(userLine);
+                inputField.value = "";
+
+                if (terminal.querySelectorAll(".line.user-input").length === 1) {
+                    const initializingLine = document.createElement("div");
+                    initializingLine.classList.add("line", "thinking");
+                    initializingLine.innerHTML =
+                        '<i class="fas fa-spinner fa-spin"></i> Initializing, Chain Of Thought and Cognitive Reasoning...';
+                    terminal.appendChild(initializingLine);
+                }
+
+                const messageData = {
+                    type:
+                        terminal.querySelectorAll(".line.user-input").length === 1
+                            ? "new_question"
+                            : "followup",
+                    content: message,
+                };
+                ws.send(JSON.stringify(messageData));
+            }
+        }
+
+        // -------- Report Section Creation --------
+
+        let researchQuestionCount = 1; // Counter for research questions
+
+        function createReportSection(type, content) {
+            // Special handling for follow-up responses
+            if (type === "followup_response") {
+                addToFollowupChat(content, "bot");
+                return;
+            }
+
+            // Special handling for research data - now creates individual sections for answers
+            if (type === "research_result") {
+                const result = JSON.parse(content);
+                const sectionId = `research-question-${researchQuestionCount}-section`;
+                addToResearchSection(sectionId, result, researchQuestionCount);
+                return;
+            }
+
+            // Define section titles based on message type
+            const sectionTitles = {
+                clarification: "Clarification",
+                chain_of_thought: "Cognitive Reasoning and Chain of Thought",
+                claim_decomposition: "Claim Decomposition",
+                analysis: "Analysis",
+                argumentation_analysis: "Argumentation Analysis",
+                draft_report: "Draft Report",
+                objectivity_feedback: "Objectivity Feedback",
+                d3_data: "Timeline Visualization",
+                user_feedback: "User Feedback and Explanations",
+                cognitive_reasoning: "Cognitive Reasoning",
+                research_question: "Research Question",
+            };
+
+            // Create or update the section
+            if (type === "research_question") {
+                // Increment the counter and create a new section for the next question
+                researchQuestionCount++;
+                createResearchSection(`research-question-${researchQuestionCount}-section`, `${sectionTitles[type]} ${researchQuestionCount}`, content);
+            } else {
+                createOrUpdateSection(type, sectionTitles[type] || type.replace("_", " "), content);
+            }
+        }
+
+        // -------- Research Section Handling --------
+
+        function createResearchSection(sectionId, sectionTitle, content = "") { // Added content parameter
+            const section = document.createElement("div");
+            section.id = sectionId;
+            section.classList.add("report-section");
+
+            const heading = document.createElement("h3");
+            heading.textContent = sectionTitle;
+            section.appendChild(heading);
+
+            const contentDiv = document.createElement("div");
+            contentDiv.classList.add("content");
+            contentDiv.innerHTML = marked.parse(content); // Add initial content if provided
+            section.appendChild(contentDiv);
+
+            heading.addEventListener("click", () => {
+                contentDiv.style.display =
+                    contentDiv.style.display === "none" ? "block" : "none";
+            });
+
+            reports.appendChild(section);
+        }
+
+        function addToResearchSection(sectionId, result, questionNumber, fullTitle) {
+            const section = document.getElementById(sectionId);
+            if (section) {
+                const contentDiv = section.querySelector(".content");
+                const resultDiv = document.createElement("div");
+                resultDiv.innerHTML = formatResearchResults([result], questionNumber, fullTitle); // Pass fullTitle
+                contentDiv.appendChild(resultDiv);
+            }
+        }
+
+        function formatResearchResults(results, questionNumber, fullTitle) {
+            let formattedResults = "";
+            results.forEach((result, index) => {
+                formattedResults += `
+                    <h4>Answer ${index + 1} for Question ${questionNumber} (${result.source}):</h4>
+                    <ul>
+                        <li>Title: ${fullTitle}</li> 
+                        <li>URL: <a href="${result.url}" target="_blank">${result.url}</a></li>
+                    </ul>
+                    ${result.snippet ? `<p>Snippet: ${result.snippet}</p>` : ""}
+                    ${result.content ? `<p>Content: ${marked.parse(result.content)}</p>` : ""} 
+                    ${result.answer ? `<p>Answer: ${result.answer}</p>` : ""}
+                `;
+            });
+            return formattedResults;
+        }
+
+       // *** ADDED createOrUpdateSection FUNCTION ***
+        function createOrUpdateSection(type, title, content) {
+            const sectionId = type + "-section";
+            let existingSection = document.getElementById(sectionId);
+
+            if (!existingSection) {
+                existingSection = document.createElement("div");
+                existingSection.id = sectionId;
+                existingSection.classList.add("report-section");
+                reports.appendChild(existingSection);
+
+                const sectionHeading = document.createElement("h3");
+                sectionHeading.textContent = title;
+                existingSection.appendChild(sectionHeading);
+
+                const contentDiv = document.createElement("div");
+                contentDiv.classList.add("content");
+                existingSection.appendChild(contentDiv);
+
+                sectionHeading.addEventListener("click", () => {
+                    contentDiv.style.display = contentDiv.style.display === "none" ? "block" : "none";
+                });
+            }
+
+            // Update the content of the section
+            existingSection.querySelector(".content").innerHTML = marked.parse(content);
+        }
+
+        // -------- Follow-up Chat Box --------
+        function createFollowupChat() {
+            // ... (Follow-up Chat Box code) ...
+        }
+
+        function sendFollowupQuestion() {
+            // ... (Follow-up Question Sending code) ...
+        }
+
+        function addToFollowupChat(message, sender) {
+            // ... (Add to Follow-up Chat code) ...
+        }
+
+        // Create the follow-up chat box when the page loads
+        window.addEventListener("load", () => {
+            createFollowupChat();
+        });
+
+        // ------------ D3.js Timeline Visualization ------------
+        function createTimeline(data) {
+            // ... (D3.js Timeline Visualization code) ...
+        }
+        // -----------------------------------------------------
+
+        sendButton.addEventListener("click", sendMessage);
+        inputField.addEventListener("keypress", (event) => {
+            if (event.key === "Enter") {
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+
+</html>
