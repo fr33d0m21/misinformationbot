@@ -1,6 +1,7 @@
 # MisinformationBot: No More Lies
 
-![MisinformationBot](https://github.com/fr33d0m21/misinformationbot/blob/main/assets/logo.png)
+[![Watch the video](https://img.youtube.com/vi/H_rnLpXFlv4/maxresdefault.jpg)](https://youtu.be/H_rnLpXFlv4)
+
 
 ## Table of Contents
 
