@@ -1,62 +1,44 @@
-import asyncio
-from openai import AsyncOpenAI
-import logging
-from typing import Dict, Any
-from fastapi import WebSocket
-from dotenv import load_dotenv
-load_dotenv()
+import os
+from typing import List
 
-logger = logging.getLogger(__name__)
+from openai import OpenAI
+from swarm import Swarm, Agent 
+from swarm.types import Result # Import Result from swarm.types
 
-async def claim_decomposition_agent(openai_client: AsyncOpenAI, data: Dict[str, Any], websocket: WebSocket) -> Dict[str, Any]:
-    try:
-        original_question = data.get("original_question", "")
-        clarification = data.get("clarification", "")
-        chain_of_thought = data.get("chain_of_thought", "")
+# Import handoff function (no agent import)
+from agents.question_generation_agent import question_generation_handoff
 
-        # 1. Construct Prompt with Context
-        messages = [
-            {
-                "role": "system",
-                "content": "You are an AI assistant specialized in decomposing complex claims into smaller, verifiable sub-claims. Consider the provided clarification and chain of thought to identify the most relevant aspects of the claim for decomposition. Focus on generating sub-claims that are specific, measurable, achievable, relevant, and time-bound (SMART).",
-            },
-            {
-                "role": "user",
-                "content": f"Decompose the following claim into 5 specific, measurable, achievable, relevant, and time-bound (SMART) sub-claims that can be researched individually:\n\nOriginal Claim: {original_question}\nClarification: {clarification}\nChain of Thought: {chain_of_thought}",
-            },
-        ]
+# Initialize OpenAI client
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-        # 2. Generate Sub-claims
-        response = await openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=messages,
-            temperature=0.5, 
-            max_tokens=1500,
-        )
-        subclaims_text = response.choices[0].message.content.strip()
+# --- Claim Decomposition Agent ---
+def decompose_claim(chain_of_thought: str) -> List[str]:
+    """Decomposes the claim into smaller, verifiable sub-claims 
+    that are specific, measurable, achievable, relevant, and time-bound (SMART). 
+    """
+    print("Decomposing Claim...")
+    response = openai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "Decompose this claim into 5 SMART sub-claims that can be researched independently, considering this chain of thought: "},
+            {"role": "user", "content": f"Chain of Thought: {chain_of_thought}"}
+        ],
+        temperature=0.5
+    )
+    subclaims_text = response.choices[0].message.content.strip()
+    subclaims = [line.strip() for line in subclaims_text.split("\n") if line.strip()]
+    print("Subclaims:", subclaims)
+    return subclaims
 
-        # 3. Extract and Structure Sub-claims
-        subclaims = []
-        for line in subclaims_text.split("\n"):
-            line = line.strip()
-            if line:
-                # Remove leading numbers or bullets
-                line = line.lstrip("1234567890. ").lstrip("- ").strip()
-                subclaims.append(line)
+def decomposition_handoff(chain_of_thought: str) -> Result:
+    """Handoff function to pass the sub-claims to the 
+    Question Generation Agent.
+    """
+    subclaims = decompose_claim(chain_of_thought)
+    return question_generation_handoff(subclaims, chain_of_thought)
 
-        logger.info("Claim Decomposition Agent Output: %s", subclaims)
-        data["subclaims"] = subclaims
-        data["chain_of_thought"] += (
-            f"\n- **Decomposed Claim into Sub-claims:**\n {chr(10).join(['    - ' + sc for sc in subclaims])}"
-        )
-
-        # 4. Send "Thinking" Message
-        await websocket.send_json({"type": "thinking", "content": "Decomposing the claim into verifiable parts..."})
-        await websocket.send_json({"type": "claim_decomposition", "content": '\n'.join(subclaims)})
-        await websocket.send_json({"type": "thinking", "content": "Let me break down this claim into smaller parts..."})
-        await websocket.send_json({"type": "thinking", "content": "Let me think of some questions to research your statement..."}) 
-        return data
-
-    except Exception as e:
-        logger.error(f"Error in ClaimDecompositionAgent: {e}")
-        raise Exception("Claim decomposition failed.")
+claim_decomposition_agent = Agent(
+    name='Claim Decomposition Agent',
+    instructions='Decompose the claim into smaller, verifiable SMART sub-claims.',
+    functions=[decompose_claim, decomposition_handoff]
+)

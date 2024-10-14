@@ -1,75 +1,72 @@
-import asyncio
-from openai import AsyncOpenAI
-import json
-import logging
+import os
 from typing import Dict, Any
-from fastapi import WebSocket
-from dotenv import load_dotenv
-load_dotenv()
 
-logger = logging.getLogger(__name__)
+from openai import OpenAI
+from swarm import Swarm, Agent 
+from swarm.types import Result # Import Result from swarm.types
 
-async def analyst_agent(openai_client: AsyncOpenAI, data: Dict[str, Any], websocket: WebSocket) -> Dict[str, Any]:
-    try:
-        logger.info("Analyzing research data.")
-        await websocket.send_json({"type": "thinking", "content": "Analyzing research data..."})
-        original_question = data.get("original_question", "")
-        clarification = data.get("clarification", "")
-        chain_of_thought = data.get("chain_of_thought", "")
-        research_data = data.get("research_data", {})
+# Import necessary for handoff
+from agents.argumentation_mining_agent import argumentation_handoff
 
-        if not research_data:
-            logger.warning("No research data provided to the analyst agent.")
-            return data
+# Initialize OpenAI client
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-        # 1. Format Research Data for Analysis
-        formatted_research_data = ""
-        for question, results in research_data.items():
-            formatted_research_data += f"## Research Question: {question}\n\n"
-            for i, result in enumerate(results):
-                formatted_research_data += (
-                    f"**Result {i+1} ({result.get('source', 'Unknown')}):**\n"
-                    f"- Title: {result.get('title', 'N/A')}\n"
-                    f"- URL: {result.get('url', 'N/A')}\n"
-                )
-                if result.get("snippet"):
-                    formatted_research_data += f"- Snippet: {result.get('snippet')}\n"
-                if result.get("answer"):
-                    formatted_research_data += f"- Answer: {result.get('answer')}\n"
-                formatted_research_data += "\n"
+# --- Analyst Agent ---
+def analyze_research(
+    rephrased_claim: str, chain_of_thought: str, research_data: Dict[str, Any]
+) -> str:
+    """Analyzes the research data, considering the rephrased claim,
+    chain of thought, and evidence from different sources. Identifies
+    key insights, supporting/refuting evidence, potential biases, and
+    inconsistencies.
+    """
+    print("Analyzing Research Data...")
+    # Format the research data for a clear presentation to the LLM
+    formatted_research = ""
+    for question, results in research_data.items():
+        formatted_research += f"## {question}\n"
+        for i, result in enumerate(results):
+            source = result.get("source", "Unknown Source")
+            title = result.get("title", "No Title")
+            url = result.get("url", "No URL")
+            snippet = result.get("snippet", "")
+            formatted_research += (
+                f"**Result {i+1} ({source}):**\n"
+                f"   - **Title:** {title}\n"
+                f"   - **URL:** {url}\n"
+                f"   - **Snippet:** {snippet}\n\n"
+            )
 
-        # 2. Construct Prompt with Context
-        messages = [
+    response = openai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
             {
                 "role": "system",
-                "content": "You are a truth-seeking analyst. Your role is to carefully examine research data gathered from various sources to determine the veracity of a claim. Consider the original claim, clarification, and chain of thought to provide a comprehensive analysis that highlights key insights, evidence supporting or refuting the claim, potential biases, and inconsistencies in the information. Present your analysis in a clear and concise manner.",
+                "content": """Analyze the research data to determine the truthfulness of the claim,
+                              considering the chain of thought. Identify key insights, supporting or
+                              refuting evidence, potential biases in sources, and any inconsistencies
+                              in the information. Be thorough and present your analysis in a well-organized way.""",
             },
             {
                 "role": "user",
-                "content": f"Analyze the following research data to evaluate the truthfulness of the claim:\n\nOriginal Claim: {original_question}\nClarification: {clarification}\nChain of Thought: {chain_of_thought}\n\nResearch Data:\n{formatted_research_data}",
+                "content": f"Claim: {rephrased_claim}\nChain of Thought: {chain_of_thought}\nResearch Data: {formatted_research}",
             },
-        ]
+        ],
+        temperature=0.3,
+    )
+    analysis = response.choices[0].message.content.strip()
+    print("Analysis:", analysis)
+    return analysis
 
-        # 3. Generate Analysis
-        response = await openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=messages,
-            temperature=0.3,
-            max_tokens=2000,
-        )
-        analysis = response.choices[0].message.content.strip()
-        logger.info("Analyst Agent Output: %s", analysis)
-        data["analysis"] = analysis
+def analyst_handoff(rephrased_claim: str, chain_of_thought: str, research_data: Dict[str, Any]) -> Result:
+    """Handoff function to pass the analysis to the Argumentation Mining Agent.
+    """
+    analysis = analyze_research(rephrased_claim, chain_of_thought, research_data)
+    return argumentation_handoff(rephrased_claim, analysis, research_data) 
 
-        # 4. Send Analysis to Client
-        
-        await websocket.send_json({"type": "analysis", "content": analysis})
-        
-
-        # 5. Update Chain of Thought
-        data["chain_of_thought"] += "\n- Analyzed the research data and generated a comprehensive analysis."
-        return data
-
-    except Exception as e:
-        logger.error(f"Error in AnalystAgent: {e}")
-        raise Exception("Analysis failed.")
+# Define the agent at the bottom of the file
+analyst_agent = Agent(
+    name="Analyst Agent",
+    instructions="Analyze the collected research data and assess the claim's truthfulness.",
+    functions=[analyze_research, analyst_handoff],
+)

@@ -1,66 +1,64 @@
-import asyncio
-from openai import AsyncOpenAI
-import logging
-from typing import Dict, Any, List
-from fastapi import WebSocket
-from dotenv import load_dotenv
-load_dotenv()
+import os
+from typing import List
 
-logger = logging.getLogger(__name__)
+from openai import OpenAI
+from swarm import Swarm, Agent 
+from swarm.types import Result # Import Result from swarm.types
 
-async def question_generation_agent(openai_client: AsyncOpenAI, data: Dict[str, Any], websocket: WebSocket) -> Dict[str, Any]:
-    try:
-        original_question = data.get("original_question", "")
-        clarification = data.get("clarification", "")
-        chain_of_thought = data.get("chain_of_thought", "")
-        subclaims = data.get("subclaims", [])
+# Import handoff function
+from agents.research_agent import research_handoff
 
-        research_questions = []
+# Initialize OpenAI client
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-        # 1. Generate Questions for Each Subclaim
-        for i, subclaim in enumerate(subclaims):
-            messages = [
+# Maximum number of Tavily searches allowed
+MAX_TAVILY_SEARCHES = 25
+
+# --- Question Generation Agent ---
+def generate_questions(subclaims: List[str], chain_of_thought: str) -> List[str]:
+    """Generates insightful research questions for each sub-claim,
+    prioritizing questions that can be answered through research using
+    publicly available information and data. Questions are limited to
+    between 4 and 400 characters to comply with Tavily's requirements.
+    """
+    print("Generating Research Questions...")
+    research_questions = []
+    for i, subclaim in enumerate(subclaims):
+        response = openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
                 {
                     "role": "system",
-                    "content": f"You are a research assistant focused on crafting insightful research questions. Your task is to generate 5 specific, unbiased research questions that can help investigate the truthfulness of a sub-claim, considering the overall context of the original claim, clarification, and chain of thought. Focus on generating questions that can be answered through research using publicly available information and data.",
+                    "content": f"""Generate 3 research questions for sub-claim {i+1} that are between 4 
+                                  and 400 characters long and can be answered using publicly available 
+                                  information. Consider this chain of thought: """,
                 },
                 {
                     "role": "user",
-                    "content": f"Generate 2 research questions for the following sub-claim:\n\nOriginal Claim: {original_question}\nClarification: {clarification}\nChain of Thought: {chain_of_thought}\nSub-claim {i+1}: {subclaim}",
+                    "content": f"Sub-claim: {subclaim}\nChain of Thought: {chain_of_thought}",
                 },
-            ]
-
-            response = await openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=messages,
-                temperature=0.5,
-                max_tokens=1000,
-            )
-            questions_text = response.choices[0].message.content.strip()
-
-            # Extract questions and add to the list
-            for line in questions_text.split("\n"):
-                line = line.strip()
-                if line:
-                    line = line.lstrip("1234567890. ").lstrip("- ").strip()
-                    research_questions.append(line)
-
-        logger.info("Question Generation Agent Output: %s", research_questions)
-        data["research_questions"] = research_questions
-
-        # 2. Update Chain of Thought
-        data["chain_of_thought"] += (
-            f"\n- **Generated {len(research_questions)} Research Questions:**\n{chr(10).join(['    - ' + q for q in research_questions])}"
+            ],
+            temperature=0.5,
         )
+        questions_text = response.choices[0].message.content.strip()
+        questions = [line.strip() for line in questions_text.split("\n") if line.strip()]
+        research_questions.extend(questions)
 
-        # 3. Send "Thinking" Message
-        await websocket.send_json(
-            {"type": "thinking", "content": "Generating insightful research questions..."}
-        )
-        
+    # Limit the number of research questions for Tavily
+    research_questions = research_questions[:MAX_TAVILY_SEARCHES] 
+    
+    print("Research Questions:", research_questions)
+    return research_questions
 
-        return data
+def question_generation_handoff(subclaims: List[str], chain_of_thought: str) -> Result:
+    """Handoff function to pass the research questions
+    to the Research Agent.
+    """
+    research_questions = generate_questions(subclaims, chain_of_thought)
+    return research_handoff(research_questions)
 
-    except Exception as e:
-        logger.error(f"Error in QuestionGenerationAgent: {e}")
-        raise Exception("Question generation failed.")
+question_generation_agent = Agent(
+    name="Question Generation Agent",
+    instructions="Generate insightful research questions based on the sub-claims.",
+    functions=[generate_questions, question_generation_handoff],
+)

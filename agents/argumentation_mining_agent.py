@@ -1,70 +1,75 @@
-import asyncio
-from openai import AsyncOpenAI
-import json
-import logging
-from typing import Dict, Any
-from fastapi import WebSocket
-from dotenv import load_dotenv
-load_dotenv()
+import os
+from typing import Dict, Any, List
 
-logger = logging.getLogger(__name__)
+from openai import OpenAI
+from swarm import Swarm, Agent 
+from swarm.types import Result # Import Result from swarm.types
 
-async def argumentation_mining_agent(openai_client: AsyncOpenAI, data: Dict[str, Any], websocket: WebSocket) -> Dict[str, Any]:
-    try:
-        logger.info("Mining arguments and evidence.")
-        original_question = data.get("original_question", "")
-        clarification = data.get("clarification", "")
-        chain_of_thought = data.get("chain_of_thought", "")
-        analysis = data.get("analysis", "")  # Include the analysis from the analyst_agent
-        research_data = data.get("research_data", {})
+from agents.drafter_agent import drafter_agent, drafting_handoff
+from agents.objectivity_agent import objectivity_agent, objectivity_handoff # Import for the next handoff
 
-        if not research_data or not analysis:
-            logger.warning("Insufficient data for argumentation mining.")
-            return data
+# Initialize OpenAI client
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-        # 1. Format Research Data for Argumentation Mining
-        formatted_research_data = ""
-        for question, results in research_data.items():
-            formatted_research_data += f"## Research Question: {question}\n\n"
-            for i, result in enumerate(results):
-                formatted_research_data += (
-                    f"**Result {i+1} ({result.get('source', 'Unknown')}):**\n"
-                    f"- Title: {result.get('title', 'N/A')}\n"
-                    f"- URL: {result.get('url', 'N/A')}\n"
-                )
-                if result.get("snippet"):
-                    formatted_research_data += f"- Snippet: {result.get('snippet')}\n"
-                if result.get("answer"):
-                    formatted_research_data += f"- Answer: {result.get('answer')}\n"
-                formatted_research_data += "\n"
+# --- Argumentation Mining Agent ---
+def mine_arguments(
+    rephrased_claim: str, analysis: str, research_data: Dict[str, Any]
+) -> str:
+    """Mines and analyzes arguments for and against the claim from the research data.
+    Identifies premises and conclusions, evaluates evidence quality, and
+    detects potential biases and logical fallacies.
+    """
+    print("Mining Arguments")
+    # Format the research data for a clear presentation to the LLM
+    formatted_research = ""
+    for question, results in research_data.items():
+        formatted_research += f"## {question}\n"
+        for i, result in enumerate(results):
+            source = result.get("source", "Unknown Source")
+            title = result.get("title", "No Title")
+            url = result.get("url", "No URL")
+            snippet = result.get("snippet", "")
+            formatted_research += (
+                f"**Result {i+1} ({source}):**\n"
+                f"   - **Title:** {title}\n"
+                f"   - **URL:** {url}\n"
+                f"   - **Snippet:** {snippet}\n\n"
+            )
 
-        # 2. Construct Prompt with Context
-        messages = [
+    response = openai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
             {
                 "role": "system",
-                "content": "You are an AI assistant skilled in argumentation mining. Your task is to identify and analyze arguments and evidence from the provided research data, considering the initial analysis. Extract the main arguments for and against the claim, highlighting the supporting evidence and evaluating the strength and weaknesses of each argument. Focus on:\n\n- **Identifying Premises and Conclusions:** Clearly state the premises (reasons) and conclusions of each argument.\n- **Evidence Evaluation:** Assess the quality and relevance of the evidence supporting each argument.\n- **Logical Fallacies:** Identify any logical fallacies or flaws in the reasoning.\n- **Bias Detection:** Consider potential biases in the sources or the arguments themselves.",
+                "content": """Identify and analyze arguments for and against the claim based on the
+                              research data and analysis. Focus on:
+                              - Identifying Premises and Conclusions of each argument
+                              - Evaluating the quality and relevance of evidence
+                              - Identifying logical fallacies and flaws in reasoning
+                              - Detecting potential biases in sources or arguments""",
             },
             {
                 "role": "user",
-                "content": f"Analyze the following claim, research data, and analysis to identify arguments and evidence:\n\nOriginal Claim: {original_question}\nClarification: {clarification}\nChain of Thought: {chain_of_thought}\nAnalysis: {analysis}\n\nResearch Data:\n{formatted_research_data}",
+                "content": f"Claim: {rephrased_claim}\nAnalysis: {analysis}\nResearch Data: {formatted_research}",
             },
-        ]
+        ],
+        temperature=0.3,
+    )
+    argumentation_analysis = response.choices[0].message.content.strip()
+    print("Argumentation Analysis:", argumentation_analysis)
+    return argumentation_analysis
 
-        # 3. Generate Argumentation Analysis
-        response = await openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=messages,
-            temperature=0.3,
-            max_tokens=2000,
-        )
-        argumentation_analysis = response.choices[0].message.content.strip()
+def argumentation_handoff(rephrased_claim: str, analysis: str, research_data: Dict[str, Any]) -> Result:
+    """Handoff function to pass the argument analysis to the Drafter Agent.
+    """
+    argumentation_analysis = mine_arguments(rephrased_claim, analysis, research_data)
+    intermediate_result = drafting_handoff(argumentation_analysis)
+    draft_report = intermediate_result.context_variables.get("draft_report")
+    return objectivity_handoff(draft_report)
 
-        logger.info("Argumentation Mining Agent Output: %s", argumentation_analysis)
-        data["argumentation_analysis"] = argumentation_analysis
-        data["chain_of_thought"] += "\n- Mined and analyzed arguments and evidence from the research data."
-
-        return data
-
-    except Exception as e:
-        logger.error(f"Error in ArgumentationMiningAgent: {e}")
-        raise Exception("Argumentation mining failed.")
+# Define the agent at the bottom of the file
+argumentation_mining_agent = Agent(
+    name="Argumentation Mining Agent",
+    instructions="Identify and analyze arguments from the research data.",
+    functions=[mine_arguments, argumentation_handoff],
+)

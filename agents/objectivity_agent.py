@@ -1,71 +1,64 @@
-import asyncio
-from openai import AsyncOpenAI
-import json
-import logging
-from typing import Dict, Any
-from fastapi import WebSocket
-from dotenv import load_dotenv
-load_dotenv()
+import os
 
-logger = logging.getLogger(__name__)
+from openai import OpenAI
+from swarm import Swarm, Agent 
+from swarm.types import Result # Import Result from swarm.types
 
-async def objectivity_agent(openai_client: AsyncOpenAI, data: Dict[str, Any], websocket: WebSocket, redis_client) -> Dict[str, Any]:
-    try:
-        logger.info("Checking for bias and ensuring objectivity.")
-        await websocket.send_json({"type": "thinking", "content": "Checking for bias and ensuring objectivity..."})
-        original_question = data.get("original_question", "")
-        clarification = data.get("clarification", "")
-        chain_of_thought = data.get("chain_of_thought", "")
-        draft_report = data.get("draft_report", "")
-        session_id = data.get("session_id", "default")
+# Correct import to avoid circular import
+from agents.data_visualization_reporting_agent import visualization_agent, visualization_handoff
+from agents.user_feedback_explanation_agent import feedback_agent, feedback_handoff  
 
-        if not draft_report:
-            logger.warning("No draft report provided to the objectivity agent.")
-            return data
+# Initialize OpenAI client
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-        # 1. Construct Prompt for Objectivity Evaluation
-        messages = [
+# --- Objectivity Agent ---
+def check_objectivity(draft_report: str, rephrased_claim: str, analysis: str) -> str:
+    """Analyzes the draft report for potential biases, using a combination
+    of linguistic analysis and reasoning about evidence selection, logical
+    fallacies, and source credibility. Provides specific suggestions for
+    improving objectivity.
+    """
+    print("Checking for biases...")
+    response = openai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
             {
                 "role": "system",
-                "content": "You are an AI assistant trained to identify bias and promote objectivity in written reports. Your role is to meticulously analyze a report that evaluates the truthfulness of a claim. Focus on:\n\n- **Language Bias:** Identify any language that might be emotionally charged, subjective, or leading.\n- **Evidence Selection Bias:** Check if the report presents a balanced selection of evidence or if it favors one side of the argument.\n- **Logical Fallacies:** Point out any logical fallacies or flaws in reasoning that might introduce bias.\n- **Source Evaluation:**  Assess whether the report critically evaluates the credibility and potential biases of its sources.\n\nProvide specific examples and concrete suggestions for improvement to ensure the report is as neutral and objective as possible.",
+                "content": """You are a highly skilled bias detection and objectivity specialist.
+                              Analyze the draft report to ensure it is completely unbiased.  Consider:
+                              - Language Bias: Identify emotionally charged, subjective, or leading language.
+                              - Evidence Selection Bias:  Check if evidence presentation favors one side.
+                              - Logical Fallacies:  Point out any fallacies that might introduce bias.
+                              - Source Evaluation: Assess source credibility and potential biases.
+
+                              Provide specific examples and actionable suggestions for improvement.""",
             },
             {
                 "role": "user",
-                "content": f"Analyze the following report for objectivity, providing specific feedback and suggestions for improvement:\n\nOriginal Claim: {original_question}\nClarification: {clarification}\nChain of Thought: {chain_of_thought}\nReport: {draft_report}",
+                "content": f"Claim: {rephrased_claim}\nAnalysis: {analysis}\nDraft Report: {draft_report}",
             },
-        ]
+        ],
+        temperature=0.3,  # Lower temperature for more analytical responses
+    )
+    objectivity_feedback = response.choices[0].message.content.strip()
+    print("Objectivity Feedback:", objectivity_feedback)
+    return objectivity_feedback
 
-        # 2. Generate Objectivity Feedback
-        response = await openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=messages,
-            temperature=0.3,  # Lower temperature for more analytical responses
-            max_tokens=2000,
-        )
-        objectivity_feedback = response.choices[0].message.content.strip()
+def objectivity_handoff(objectivity_feedback: str) -> Result:
+    """Handoff function to pass objectivity feedback 
+    to the Data Visualization Agent. 
+    """
+    # Get results from visualization_agent
+    intermediate_result = visualization_handoff(objectivity_feedback)
+    # Extract the visualizations from intermediate_result
+    visualizations = intermediate_result.context_variables.get("visualizations")
 
-        # 3. Structure and Send Feedback
-        if not objectivity_feedback.startswith("#"):
-            objectivity_feedback = f"# Objectivity Feedback\n\n{objectivity_feedback}"
+    # Pass the visualizations to feedback_handoff 
+    return feedback_handoff(visualizations)
 
-        logger.info("Objectivity Agent Output: %s", objectivity_feedback)
-
-        # 4. Send Feedback to Client
-        await websocket.send_json({"type": "objectivity_feedback", "content": objectivity_feedback})
-
-        # 5. Store Session Data (if needed)
-        if session_id:
-            session_data = {
-                "report": draft_report,
-                "objectivity_feedback": objectivity_feedback,
-            }
-            redis_client.set(session_id, json.dumps(session_data), ex=86400)
-            logger.info(f"Stored session data for session_id: {session_id} in Redis")
-
-        # 6. Update Chain of Thought
-        data["chain_of_thought"] += "\n- Evaluated the report for objectivity and provided feedback."
-        return data
-
-    except Exception as e:
-        logger.error(f"Error in Objectivity Agent: {e}")
-        raise Exception("Objectivity check failed.")
+# Define the agent at the bottom of the file
+objectivity_agent = Agent(
+    name="Objectivity Agent",
+    instructions="Analyze the report for potential biases and provide suggestions for improvement.",
+    functions=[check_objectivity, objectivity_handoff],
+)
