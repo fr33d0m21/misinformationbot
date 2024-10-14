@@ -4,6 +4,8 @@ from typing import Dict, Any
 from openai import OpenAI
 from swarm import Swarm, Agent 
 from swarm.types import Result # Import Result from swarm.types
+import websockets
+import asyncio
 
 # Import necessary for handoff
 from agents.argumentation_mining_agent import argumentation_handoff
@@ -45,7 +47,8 @@ def analyze_research(
                 "content": """Analyze the research data to determine the truthfulness of the claim,
                               considering the chain of thought. Identify key insights, supporting or
                               refuting evidence, potential biases in sources, and any inconsistencies
-                              in the information. Be thorough and present your analysis in a well-organized way.""",
+                              in the information. Be thorough and present your analysis in a well-organized way. 
+                              Do not include any information about your cutoff date or that you are an AI agent.""",
             },
             {
                 "role": "user",
@@ -61,7 +64,16 @@ def analyze_research(
 def analyst_handoff(rephrased_claim: str, chain_of_thought: str, research_data: Dict[str, Any]) -> Result:
     """Handoff function to pass the analysis to the Argumentation Mining Agent.
     """
+    global active_websocket # Declare active_websocket as global
     analysis = analyze_research(rephrased_claim, chain_of_thought, research_data)
+
+    # Send agent_update message 
+    asyncio.run(active_websocket.send_json({
+        "type": "agent_update",
+        "agent": analyst_agent.name,
+        "content": f"## Analysis:\n\n{analysis}"
+    }))
+
     return argumentation_handoff(rephrased_claim, analysis, research_data) 
 
 # Define the agent at the bottom of the file

@@ -1,10 +1,10 @@
 import os
 from typing import List
-
+import asyncio
 from openai import OpenAI
 from swarm import Swarm, Agent 
 from swarm.types import Result # Import Result from swarm.types
-
+import websockets
 # Import handoff function (no agent import)
 from agents.question_generation_agent import question_generation_handoff
 
@@ -34,7 +34,16 @@ def decomposition_handoff(chain_of_thought: str) -> Result:
     """Handoff function to pass the sub-claims to the 
     Question Generation Agent.
     """
+    global active_websocket # Declare active_websocket as global 
     subclaims = decompose_claim(chain_of_thought)
+
+
+    # Send agent_update message 
+    asyncio.run(active_websocket.send_json({
+        "type": "agent_update",
+        "agent": claim_decomposition_agent.name,
+        "content": f"## Subclaims:\n\n{subclaims}"
+    }))
     return question_generation_handoff(subclaims, chain_of_thought)
 
 claim_decomposition_agent = Agent(

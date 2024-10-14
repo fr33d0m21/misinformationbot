@@ -1,5 +1,6 @@
 import os
-
+import asyncio
+import websockets
 from openai import OpenAI
 from swarm import Swarm, Agent 
 from swarm.types import Result # Import Result from swarm.types
@@ -31,7 +32,8 @@ def check_objectivity(draft_report: str, rephrased_claim: str, analysis: str) ->
                               - Logical Fallacies:  Point out any fallacies that might introduce bias.
                               - Source Evaluation: Assess source credibility and potential biases.
 
-                              Provide specific examples and actionable suggestions for improvement.""",
+                              Provide specific examples and actionable suggestions for improvement.
+                              Do not include any information about your cutoff date or that you are an AI agent.""",
             },
             {
                 "role": "user",
@@ -48,10 +50,17 @@ def objectivity_handoff(objectivity_feedback: str) -> Result:
     """Handoff function to pass objectivity feedback 
     to the Data Visualization Agent. 
     """
+    global active_websocket # Declare active_websocket as global
     # Get results from visualization_agent
     intermediate_result = visualization_handoff(objectivity_feedback)
     # Extract the visualizations from intermediate_result
     visualizations = intermediate_result.context_variables.get("visualizations")
+    # Send agent_update message 
+    asyncio.run(active_websocket.send_json({
+        "type": "agent_update",
+        "agent": objectivity_agent.name,
+        "content": f"## Objectivity Feedback:\n\n{objectivity_feedback}"
+    }))
 
     # Pass the visualizations to feedback_handoff 
     return feedback_handoff(visualizations)

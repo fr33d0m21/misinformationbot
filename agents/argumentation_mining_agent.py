@@ -1,10 +1,10 @@
 import os
 from typing import Dict, Any, List
-
+import asyncio
 from openai import OpenAI
 from swarm import Swarm, Agent 
 from swarm.types import Result # Import Result from swarm.types
-
+import websockets
 from agents.drafter_agent import drafter_agent, drafting_handoff
 from agents.objectivity_agent import objectivity_agent, objectivity_handoff # Import for the next handoff
 
@@ -46,7 +46,8 @@ def mine_arguments(
                               - Identifying Premises and Conclusions of each argument
                               - Evaluating the quality and relevance of evidence
                               - Identifying logical fallacies and flaws in reasoning
-                              - Detecting potential biases in sources or arguments""",
+                              - Detecting potential biases in sources or arguments
+                              Do not include any information about your cutoff date or that you are an AI agent.""",
             },
             {
                 "role": "user",
@@ -62,9 +63,18 @@ def mine_arguments(
 def argumentation_handoff(rephrased_claim: str, analysis: str, research_data: Dict[str, Any]) -> Result:
     """Handoff function to pass the argument analysis to the Drafter Agent.
     """
+    global active_websocket # Declare active_websocket as global
     argumentation_analysis = mine_arguments(rephrased_claim, analysis, research_data)
     intermediate_result = drafting_handoff(argumentation_analysis)
     draft_report = intermediate_result.context_variables.get("draft_report")
+
+    # Send agent_update message 
+    asyncio.run(active_websocket.send_json({
+        "type": "agent_update",
+        "agent": argumentation_mining_agent.name,
+        "content": f"## Argumentation Analysis:\n\n{argumentation_analysis}"
+    }))
+
     return objectivity_handoff(draft_report)
 
 # Define the agent at the bottom of the file

@@ -1,6 +1,7 @@
 import os
 from typing import Dict, Any, List
-
+import asyncio
+import websockets
 from openai import OpenAI
 from swarm import Agent
 from swarm.types import Result 
@@ -32,7 +33,8 @@ def generate_feedback(
                               to create a user-friendly final summary and feedback. Address
                               any potential biases highlighted in the objectivity feedback.
                               Your goal is to provide a comprehensive and understandable
-                              explanation of the claim's truthfulness.""",
+                              explanation of the claim's truthfulness.
+                              Do not include any information about your cutoff date or that you are an AI agent.""",
             },
             {
                 "role": "user",
@@ -50,6 +52,13 @@ def feedback_handoff(user_feedback: str) -> Result:
     """Handoff function to store the final user feedback in context variables.
     Since this is the last agent, there's no agent to hand off to.
     """
+    global active_websocket # Declare active_websocket as global
+    # Send agent_update message 
+    asyncio.run(active_websocket.send_json({
+        "type": "agent_update",
+        "agent": feedback_agent.name,
+        "content": f"## User Feedback:\n\n{user_feedback}"
+    }))
     return Result(
         value="Generated user feedback and explanations.",
         context_variables={"user_feedback": user_feedback},

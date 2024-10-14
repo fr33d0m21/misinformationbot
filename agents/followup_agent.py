@@ -1,6 +1,7 @@
 import os
 from typing import Dict, Any
-
+import asyncio
+import websockets
 from openai import OpenAI
 from swarm import Agent
 from swarm.types import Result 
@@ -16,6 +17,7 @@ def answer_followup(followup_question: str, session_data: Dict[str, Any]) -> str
     including the report, visualizations, and objectivity feedback. 
     May conduct additional research using tools if needed.
     """
+    global active_websocket # Declare active_websocket as global
     # Extract relevant data from session_data
     claim = session_data.get('claim')
     report = session_data.get('draft_report')
@@ -34,7 +36,8 @@ def answer_followup(followup_question: str, session_data: Dict[str, Any]) -> str
                               answers to follow-up questions about truth analysis reports. 
                               Use the provided information to formulate your response, 
                               and maintain objectivity and neutrality. If you need to 
-                              conduct additional research, use available tools. """
+                              conduct additional research, use available tools. 
+                              Do not include any information about your cutoff date or that you are an AI agent. """
             },
             {
                 "role": "user",
@@ -44,6 +47,12 @@ def answer_followup(followup_question: str, session_data: Dict[str, Any]) -> str
         temperature=0.3
     )
     print(response.choices[0].message.content.strip())
+    # Send agent_update message 
+    asyncio.run(active_websocket.send_json({
+        "type": "agent_update",
+        "agent": followup_agent.name,
+        "content": f"## Follow-up Answer:\n\n{response.choices[0].message.content.strip()}"
+    }))
     return response.choices[0].message.content.strip()
 
 followup_agent = Agent(

@@ -1,11 +1,11 @@
 import os
 import json
 from typing import Dict, Any, List
-
+import asyncio
 from openai import OpenAI
 from swarm import Swarm, Agent 
 from swarm.types import Result # Import Result from swarm.types
-
+import websockets
 from agents.user_feedback_explanation_agent import feedback_agent, feedback_handoff
 
 # Initialize OpenAI client
@@ -38,6 +38,7 @@ def create_timeline_visualization(
     Output:
       - JSON data structure containing timeline events.
       - D3.js code template (as a string) to create the visualization.
+      Do not include any information about your cutoff date or that you are an AI agent. Just focus on your output
     """
     print("Creating Timeline Visualizations")
     # 1. Extract Timeline Events from Research Data and Context
@@ -207,11 +208,19 @@ def create_timeline_visualization(
     """
 
     print("D3 Code Template:", d3_code_template)
+
     return f"Data: {json.dumps(timeline_data)}\n\nD3.js Code: {d3_code_template}"
 
 def visualization_handoff(objectivity_feedback: str) -> Result:
     """Handoff function to pass visualizations to the User Feedback Agent.
     """
+    global active_websocket # Declare active_websocket as global
+    # Send agent_update message 
+    asyncio.run(active_websocket.send_json({
+        "type": "agent_update",
+        "agent": visualization_agent.name,
+        "content": f"## Visualization:\n\n{visualization}"
+    }))
     return feedback_handoff(objectivity_feedback)
 
 # Define the agent at the bottom of the file

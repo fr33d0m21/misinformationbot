@@ -1,6 +1,6 @@
 import os
 from typing import List
-
+import asyncio
 from openai import OpenAI
 from swarm import Swarm, Agent 
 from swarm.types import Result # Import Result from swarm.types
@@ -48,15 +48,21 @@ def generate_perspectives(claim: str) -> List[str]:
     print("Perspectives:", perspectives)
     return perspectives
 
-def clarification_handoff(claim: str) -> Result:
+def clarification_handoff(claim: str) -> Result:  # Add websocket parameter!
     """Handoff function to pass the rephrased claim and perspectives 
     to the Cognitive Reasoning Agent and then to the Claim Decomposition Agent
     """
+    global active_websocket # Declare active_websocket as global
     rephrased = rephrase_claim(claim)
     perspectives = generate_perspectives(rephrased)
-    intermediate_result = cognitive_reasoning_handoff(rephrased, perspectives)
+    intermediate_result = cognitive_reasoning_handoff(rephrased, perspectives) # Pass websocket 
     chain_of_thought = intermediate_result.context_variables.get("chain_of_thought")
-    return decomposition_handoff(chain_of_thought) 
+    asyncio.run(active_websocket.send_json({
+        "type": "agent_update",
+        "agent": clarification_agent.name,
+        "content": f"## Chain of Thought:\n\n{chain_of_thought}"
+    }))
+    return decomposition_handoff(chain_of_thought)  # Pass websocket
 
 # Define the agent at the bottom of the file
 clarification_agent = Agent(

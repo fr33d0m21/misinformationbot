@@ -1,6 +1,7 @@
 import os
 from typing import List
-
+import asyncio
+import websockets
 from openai import OpenAI
 from swarm import Swarm, Agent 
 from swarm.types import Result # Import Result from swarm.types
@@ -54,7 +55,14 @@ def question_generation_handoff(subclaims: List[str], chain_of_thought: str) -> 
     """Handoff function to pass the research questions
     to the Research Agent.
     """
+    global active_websocket # Declare active_websocket as global
     research_questions = generate_questions(subclaims, chain_of_thought)
+    # Send agent_update message 
+    asyncio.run(active_websocket.send_json({
+        "type": "agent_update",
+        "agent": question_generation_agent.name,
+        "content": f"## Research Questions:\n\n{research_questions}"
+    }))
     return research_handoff(research_questions)
 
 question_generation_agent = Agent(

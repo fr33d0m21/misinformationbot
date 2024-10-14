@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MisinformationBot - No More Lies</title>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
+    <!-- Google Fonts for a futuristic monospace font -->
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="static/style.css">
+    <!-- GSAP for advanced animations -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.11.2/gsap.min.js"></script>
+    <!-- Three.js for 3D effects -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Custom JavaScript -->
+    <script src="static/script.js" defer></script>
+    
+</head>
+<body>
+    <!-- Canvas for Matrix Background Animation -->
+    <canvas id="matrix-canvas"></canvas>
+
+    <div class="container">
+        <!-- Terminal Section -->
+        <div id="terminal">
+            <div class="line bot-output">
+                <i class="fas fa-microchip"></i> MisinformationBot Activated. No more lies.
+            </div>
+            <div id="input-area">
+                <input type="text" id="input-field" placeholder="Enter your claim here...">
+                <button id="send-button">Send <i class="fas fa-paper-plane"></i></button>
+            </div>
+        </div>
+
+        <!-- Reports Section -->
+        <div id="reports">
+            <!-- Agent Cards -->
+            <div class="agent-card" id="clarification-card">
+                <h3 class="card-title">Clarification Agent <span class="laser"></span></h3>
+                <div class="card-content">
+                    <h4>Original Claim:</h4>
+                    <p id="original-claim"></p>
+
+                    <h4>Rephrased Claim:</h4>
+                    <p id="rephrased-claim"></p>
+
+                    <h4>Perspectives:</h4>
+                    <ul id="perspectives-list"></ul>
+                </div>
+            </div>
+
+            <!-- Additional Agent Cards -->
+            <div class="agent-card" id="cognitive-reasoning-card">
+                <h3 class="card-title">Cognitive Reasoning Agent <span class="laser"></span></h3>
+                <div class="card-content">
+                    <h4>Chain of Thought:</h4>
+                    <div id="chain-of-thought"></div>
+                </div>
+            </div>
+
+            <div class="agent-card" id="claim-decomposition-card">
+                <h3 class="card-title">Claim Decomposition Agent <span class="laser"></span></h3>
+                <div class="card-content">
+                    <h4>Sub-claims:</h4>
+                    <ol id="subclaims-list"></ol>
+                </div>
+            </div>
+
+            <div class="agent-card" id="question-generation-card">
+                <h3 class="card-title">Question Generation Agent <span class="laser"></span></h3>
+                <div class="card-content">
+                    <h4>Research Questions:</h4>
+                    <ul id="research-questions-list"></ul>
+                </div>
+            </div>
+
+            <div class="agent-card" id="research-card">
+                <h3 class="card-title">Research Agent <span class="laser"></span></h3>
+                <div class="card-content">
+                    <div id="research-results"></div>
+                </div>
+            </div>
+
+            <div class="agent-card" id="analyst-card">
+                <h3 class="card-title">Analyst Agent <span class="laser"></span></h3>
+                <div class="card-content">
+                    <h4>Analysis Summary:</h4>
+                    <p id="analysis-summary"></p>
+                </div>
+            </div>
+
+            <div class="agent-card" id="argumentation-mining-card">
+                <h3 class="card-title">Argumentation Mining Agent <span class="laser"></span></h3>
+                <div class="card-content">
+                    <h4>Arguments For and Against:</h4>
+                    <div id="argumentation-analysis"></div>
+                </div>
+            </div>
+
+            <div class="agent-card" id="drafter-card">
+                <h3 class="card-title">Drafter Agent <span class="laser"></span></h3>
+                <div class="card-content">
+                    <h4>Draft Report:</h4>
+                    <div id="draft-report"></div>
+                </div>
+            </div>
+
+            <div class="agent-card" id="objectivity-card">
+                <h3 class="card-title">Objectivity Agent <span class="laser"></span></h3>
+                <div class="card-content">
+                    <h4>Objectivity Feedback:</h4>
+                    <div id="objectivity-feedback"></div>
+                </div>
+            </div>
+
+            <div class="agent-card" id="visualization-card">
+                <h3 class="card-title">Visualization Agent <span class="laser"></span></h3>
+                <div class="card-content">
+                    <h4>Timeline Visualization:</h4>
+                    <div id="timeline-container"></div>
+                </div>
+            </div>
+
+            <div class="agent-card" id="feedback-card">
+                <h3 class="card-title">Feedback Agent <span class="laser"></span></h3>
+                <div class="card-content">
+                    <h4>Final Summary and Feedback:</h4>
+                    <div id="final-feedback"></div>
+                </div>
+            </div>
+
+            <!-- Follow-up Section -->
+            <div id="followup-section"></div>
+        </div>
+    </div>
+
+    <!-- Background Animation Script -->
+    <script src="static/background.js"></script>
+</body>
+</html>

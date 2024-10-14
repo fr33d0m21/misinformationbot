@@ -1,7 +1,8 @@
 import os
 import requests
 from typing import List, Dict, Any
-
+import asyncio
+import websockets
 from openai import OpenAI
 from tavily import TavilyClient
 from swarm import Agent
@@ -14,7 +15,7 @@ tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 
 # --- Research Agent ---
 def search_tavily(question: str, domains: List[str] = None) -> List[dict]:
-    print(f"Searching for: {question} using the Tavily API...")
+    print(f"Searching for: {question} using the cognative API...")
     """Searches for information using the Tavily API, focusing on
     reliable sources within specified domains.
     """
@@ -48,6 +49,7 @@ def research_handoff(research_questions: List[str]) -> Result:
     """Conducts research on each question using Tavily and hands off
     to the Analyst Agent.
     """
+    global active_websocket # Declare active_websocket as global
     print("Entering research_handoff...")  # Debug print
     research_results = {}
     for question in research_questions:
@@ -57,6 +59,12 @@ def research_handoff(research_questions: List[str]) -> Result:
     print("Research results:", research_results)  # Debug print
     rephrased_claim = "Rephrased Claim"
     chain_of_thought = "Chain of Thought"
+    # Send agent_update message 
+    asyncio.run(active_websocket.send_json({
+        "type": "agent_update",
+        "agent": research_agent.name,
+        "content": f"## Research Results:\n\n{research_results}"
+    }))
     return analyst_handoff(rephrased_claim, chain_of_thought, research_results)
 
 

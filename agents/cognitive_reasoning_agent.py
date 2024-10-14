@@ -1,10 +1,10 @@
 import os
 from typing import List
-
+import asyncio
 from openai import OpenAI
 from swarm import Swarm, Agent 
 from swarm.types import Result # Import Result from swarm.types
-
+import websockets
 # Import handoff function (no agent import)
 from agents.claim_decomposition_agent import decomposition_handoff
 
@@ -30,7 +30,8 @@ def generate_chain_of_thought(rephrased_claim: str, perspectives: List[str]) -> 
                           - Inductive Reasoning: Identify patterns and trends in evidence.
                           - Analogical Reasoning: Explore similar cases or analogies.
                           - Abductive Reasoning: Consider possible explanations and evaluate likelihood.
-                          - Causal Reasoning: Investigate cause-and-effect relationships."""
+                          - Causal Reasoning: Investigate cause-and-effect relationships.
+                          Do not include any information about your cutoff date or that you are an AI agent."""
             },
             {"role": "user", "content": f"Claim: {rephrased_claim}\nPerspectives: {perspectives_str}"}
         ],
@@ -44,7 +45,15 @@ def cognitive_reasoning_handoff(rephrased_claim: str, perspectives: List[str]) -
     """Handoff function to pass the chain of thought 
     to the Claim Decomposition Agent.
     """
+    global active_websocket # Declare active_websocket as global
     chain_of_thought = generate_chain_of_thought(rephrased_claim, perspectives)
+
+    # Send agent_update message using await
+    asyncio.run(active_websocket.send_json({
+        "type": "agent_update",
+        "agent": cognitive_reasoning_agent.name,
+        "content": f"## Chain of Thought:\n\n{chain_of_thought}"
+    }))
     return decomposition_handoff(chain_of_thought)
 
 cognitive_reasoning_agent = Agent(

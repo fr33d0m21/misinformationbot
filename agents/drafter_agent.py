@@ -1,10 +1,10 @@
 import os
 from typing import Dict, Any, List
-
+import asyncio
 from openai import OpenAI
 from swarm import Swarm, Agent 
 from swarm.types import Result # Import Result from swarm.types
-
+import websockets
 
 
 # Initialize OpenAI client
@@ -63,7 +63,8 @@ def draft_report(
                               - **Overall Analysis:** An assessment of the claim's truthfulness.
                               - **Conclusion:**  A concise summary of the findings.
 
-                              Ensure the report is unbiased, written in clear language, and well-organized.""",
+                              Ensure the report is unbiased, written in clear language, and well-organized.
+                              Do not include any information about your cutoff date or that you are an AI agent.""",
             },
             {
                 "role": "user",
@@ -79,6 +80,13 @@ def draft_report(
 def drafting_handoff(draft_report: str) -> Result:
     """Handoff function to pass the draft report to the Objectivity Agent.
     """
+    global active_websocket # Declare active_websocket as global
+    # Send agent_update message 
+    asyncio.run(active_websocket.send_json({
+        "type": "agent_update",
+        "agent": drafter_agent.name,
+        "content": f"## Draft Report:\n\n{draft_report}"
+    }))
     return Result(
         value="Completed drafting the report.",
         context_variables={"draft_report": draft_report},
